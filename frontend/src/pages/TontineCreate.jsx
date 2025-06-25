@@ -6,16 +6,29 @@ const TontineCreate = () => {
   const { user } = useContext(AuthContext);
   const navigate = useNavigate();
 
+  // --- FORM STATE ---
   const [form, setForm] = useState({
     name: "",
     amount: "",
     frequency: "monthly",
   });
 
+  // --- TONTINES LIST ---
   const [tontines, setTontines] = useState([]);
+
+  // --- USERS LIST (pour inviter) ---
   const [users, setUsers] = useState([]);
+
+  // --- CHAT STATE ---
+  const [selectedTontine, setSelectedTontine] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [newMessage, setNewMessage] = useState("");
+
+  // --- MISC ---
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const token = localStorage.getItem("token");
 
   const frequencies = [
     { value: "daily", label: "Quotidienne" },
@@ -23,11 +36,11 @@ const TontineCreate = () => {
     { value: "monthly", label: "Mensuelle" },
   ];
 
-  const token = localStorage.getItem("token");
-
+  // --- HANDLERS ---
   const handleChange = (e) =>
     setForm({ ...form, [e.target.name]: e.target.value });
 
+  // --- FETCH TONTINES ---
   const fetchTontines = async () => {
     try {
       const res = await fetch("http://localhost:5000/api/tontines", {
@@ -36,27 +49,38 @@ const TontineCreate = () => {
       const data = await res.json();
       setTontines(Array.isArray(data) ? data : []);
     } catch (err) {
-      console.error("Erreur de récupération :", err);
+      console.error("Erreur de récupération des tontines :", err);
     }
   };
 
+  // --- FETCH USERS ---
   const fetchUsers = async () => {
     try {
       const res = await fetch("http://localhost:5000/api/users", {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      setUsers(Array.isArray(data) ? data.filter(u => u._id !== user._id) : []);
+      // exclure l'utilisateur connecté
+      setUsers(Array.isArray(data) ? data.filter((u) => u._id !== user._id) : []);
     } catch (err) {
       console.error("Erreur de récupération des utilisateurs :", err);
     }
   };
 
-  useEffect(() => {
-    fetchTontines();
-    fetchUsers();
-  }, []);
+  // --- FETCH MESSAGES pour une tontine ---
+  const fetchMessages = async (tontineId) => {
+    try {
+      const res = await fetch(`http://localhost:5000/api/tontines/${tontineId}/messages`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      setMessages(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error("Erreur de récupération des messages :", err);
+    }
+  };
 
+  // --- CREER TONTINE ---
   const handleCreate = async (e) => {
     e.preventDefault();
     setError("");
@@ -88,6 +112,7 @@ const TontineCreate = () => {
     }
   };
 
+  // --- SUPPRIMER TONTINE ---
   const handleDelete = async (id) => {
     if (!window.confirm("Confirmer la suppression de la tontine ?")) return;
     try {
@@ -98,11 +123,13 @@ const TontineCreate = () => {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       fetchTontines();
+      if (selectedTontine === id) setSelectedTontine(null);
     } catch (err) {
       alert(err.message);
     }
   };
 
+  // --- REJOINDRE TONTINE ---
   const handleJoin = async (id) => {
     try {
       const res = await fetch(`http://localhost:5000/api/tontines/${id}/join`, {
@@ -117,15 +144,16 @@ const TontineCreate = () => {
     }
   };
 
-  const handleInvite = async (receiverId) => {
+  // --- INVITER UTILISATEUR ---
+  const handleInvite = async (toUserId) => {
     try {
-      const res = await fetch(`http://localhost:5000/api/invitations`, {
+      const res = await fetch(`http://localhost:5000/api/tontines/${selectedTontine}/invite`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ receiverId }),
+        body: JSON.stringify({ userId: toUserId }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
@@ -135,8 +163,48 @@ const TontineCreate = () => {
     }
   };
 
+  // --- ENVOYER MESSAGE ---
+  const handleSendMessage = async () => {
+    if (!newMessage.trim()) return;
+    try {
+      const res = await fetch(`http://localhost:5000/api/tontines/${selectedTontine}/messages`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ content: newMessage }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setNewMessage("");
+      fetchMessages(selectedTontine);
+    } catch (err) {
+      alert("Erreur envoi message : " + err.message);
+    }
+  };
+
+  // --- SELECTIONNER TONTINE POUR CHAT ---
+  const selectTontine = (tontine) => {
+    setSelectedTontine(tontine._id);
+    fetchMessages(tontine._id);
+  };
+
+  // --- CHARGEMENT INITIAL ---
+  useEffect(() => {
+    fetchTontines();
+    fetchUsers();
+  }, []);
+
+  // --- RECHARGER MESSAGES quand on change de tontine en chat ---
+  useEffect(() => {
+    if (selectedTontine) fetchMessages(selectedTontine);
+  }, [selectedTontine]);
+
   return (
     <div style={styles.container}>
+
+      {/* === FORM CREATION TONTINE === */}
       <form onSubmit={handleCreate} style={styles.form}>
         <h2 style={styles.title}>Créer une Tontine</h2>
         {error && <p style={styles.error}>{error}</p>}
@@ -179,12 +247,21 @@ const TontineCreate = () => {
         </button>
       </form>
 
+      {/* === LISTE TONTINES === */}
       <div style={styles.list}>
         <h3 style={{ marginBottom: 10 }}>Mes Tontines</h3>
         {tontines.length === 0 && <p>Aucune tontine trouvée.</p>}
 
         {tontines.map((t) => (
-          <div key={t._id} style={styles.card}>
+          <div
+            key={t._id}
+            style={{
+              ...styles.card,
+              backgroundColor: selectedTontine === t._id ? "#d1e7dd" : "#fff",
+              cursor: "pointer",
+            }}
+            onClick={() => selectTontine(t)}
+          >
             <div>
               <strong>{t.name}</strong> - {t.amount} FCFA ({t.frequency})
               <br />
@@ -192,11 +269,23 @@ const TontineCreate = () => {
             </div>
             <div style={styles.actions}>
               {t.admin?._id === user._id ? (
-                <button onClick={() => handleDelete(t._id)} style={styles.deleteBtn}>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDelete(t._id);
+                  }}
+                  style={styles.deleteBtn}
+                >
                   Supprimer
                 </button>
               ) : (
-                <button onClick={() => handleJoin(t._id)} style={styles.joinBtn}>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleJoin(t._id);
+                  }}
+                  style={styles.joinBtn}
+                >
                   Rejoindre
                 </button>
               )}
@@ -205,6 +294,7 @@ const TontineCreate = () => {
         ))}
       </div>
 
+      {/* === LISTE UTILISATEURS POUR INVITATION === */}
       <div style={{ marginTop: 40 }}>
         <h3>Utilisateurs inscrits</h3>
         {users.length === 0 ? (
@@ -213,13 +303,63 @@ const TontineCreate = () => {
           users.map((u) => (
             <div key={u._id} style={styles.userCard}>
               {u.name} ({u.email})
-              <button onClick={() => handleInvite(u._id)} style={styles.inviteBtn}>
+              <button
+                onClick={() => handleInvite(u._id)}
+                style={styles.inviteBtn}
+                disabled={!selectedTontine}
+                title={selectedTontine ? "Inviter cet utilisateur" : "Sélectionnez une tontine pour inviter"}
+              >
                 Inviter
               </button>
             </div>
           ))
         )}
       </div>
+
+      {/* === CHAT MESSAGES === */}
+      {selectedTontine && (
+        <div style={{ marginTop: 40 }}>
+          <h3>Chat de la tontine sélectionnée</h3>
+          <div style={styles.chatBox}>
+            {messages.length === 0 ? (
+              <p>Aucun message pour cette tontine.</p>
+            ) : (
+              messages.map((msg) => (
+                <div
+                  key={msg._id}
+                  style={{
+                    ...styles.message,
+                    alignSelf: msg.sender._id === user._id ? "flex-end" : "flex-start",
+                    backgroundColor: msg.sender._id === user._id ? "#25D366" : "#eee",
+                    color: msg.sender._id === user._id ? "white" : "black",
+                  }}
+                >
+                  <small>{msg.sender.name}</small>
+                  <p>{msg.content}</p>
+                  <small style={{ fontSize: 10 }}>
+                    {new Date(msg.timestamp).toLocaleString()}
+                  </small>
+                </div>
+              ))
+            )}
+          </div>
+          <div style={styles.chatInputContainer}>
+            <input
+              type="text"
+              value={newMessage}
+              onChange={(e) => setNewMessage(e.target.value)}
+              placeholder="Écrire un message..."
+              style={styles.chatInput}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleSendMessage();
+              }}
+            />
+            <button onClick={handleSendMessage} style={styles.button}>
+              Envoyer
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -317,6 +457,34 @@ const styles = {
     padding: "8px 12px",
     borderRadius: "6px",
     cursor: "pointer",
+  },
+  chatBox: {
+    display: "flex",
+    flexDirection: "column",
+    maxHeight: "300px",
+    overflowY: "auto",
+    padding: "10px",
+    border: "1px solid #ddd",
+    borderRadius: "8px",
+    backgroundColor: "#f9f9f9",
+    marginBottom: "10px",
+  },
+  message: {
+    padding: "8px 12px",
+    borderRadius: "15px",
+    maxWidth: "70%",
+    marginBottom: "8px",
+  },
+  chatInputContainer: {
+    display: "flex",
+    gap: "10px",
+  },
+  chatInput: {
+    flexGrow: 1,
+    padding: "10px",
+    fontSize: "16px",
+    borderRadius: "8px",
+    border: "1px solid #ccc",
   },
 };
 
