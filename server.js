@@ -13,7 +13,7 @@ const port = process.env.PORT || 5000;
 
 // ================== MIDDLEWARE ==================
 app.use(cors({
-  origin: [process.env.CLIENT_URL, 'http://localhost:5173'], // Autoriser plusieurs origines
+  origin: [process.env.CLIENT_URL, 'http://localhost:5173'], // Autoriser plusieurs origines pour dev
   credentials: true
 }));
 app.use(express.json());
@@ -80,6 +80,8 @@ function authMiddleware(req, res, next) {
 }
 
 // ================== ROUTES ==================
+
+// Register
 app.post('/api/register', async (req, res) => {
   const { name, email, password } = req.body;
   const hash = await bcrypt.hash(password, 10);
@@ -91,6 +93,7 @@ app.post('/api/register', async (req, res) => {
   }
 });
 
+// Login
 app.post('/api/login', async (req, res) => {
   const { email, password } = req.body;
   const user = await User.findOne({ email });
@@ -99,11 +102,13 @@ app.post('/api/login', async (req, res) => {
   res.json({ token: generateToken(user), user });
 });
 
+// Get current user
 app.get('/api/me', authMiddleware, async (req, res) => {
   const user = await User.findById(req.userId);
   res.json(user);
 });
 
+// Create tontine
 app.post('/api/tontines', authMiddleware, async (req, res) => {
   const { name, amount, frequency } = req.body;
   const tontine = await Tontine.create({
@@ -114,6 +119,7 @@ app.post('/api/tontines', authMiddleware, async (req, res) => {
   res.json(tontine);
 });
 
+// Join tontine
 app.post('/api/tontines/:id/join', authMiddleware, async (req, res) => {
   const tontine = await Tontine.findById(req.params.id);
   if (!tontine.members.includes(req.userId)) {
@@ -123,11 +129,13 @@ app.post('/api/tontines/:id/join', authMiddleware, async (req, res) => {
   res.json(tontine);
 });
 
+// Get tontines for user
 app.get('/api/tontines', authMiddleware, async (req, res) => {
   const tontines = await Tontine.find({ members: req.userId }).populate('admin');
   res.json(tontines);
 });
 
+// Add cotisation
 app.post('/api/cotisations', authMiddleware, async (req, res) => {
   const { tontineId, amount } = req.body;
   const cotisation = await Cotisation.create({
