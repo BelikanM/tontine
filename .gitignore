@@ -19,3 +19,4 @@ dist/
 
 # fichiers système
 .DS_Store
+.env
