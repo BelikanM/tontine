@@ -13,32 +13,32 @@ const port = process.env.PORT || 5000;
 
 // ================== MIDDLEWARE ==================
 app.use(cors({
-  origin: [process.env.CLIENT_URL, 'http://localhost:5173'], // Autoriser plusieurs origines pour dev
+  origin: [process.env.CLIENT_URL, 'http://localhost:5173'],
   credentials: true
 }));
 app.use(express.json());
 app.use(session({
-  secret: process.env.SESSION_SECRET || 'default_secret',
+  secret: process.env.SESSION_SECRET || 'secret123',
   resave: false,
   saveUninitialized: true
 }));
 app.use(passport.initialize());
 app.use(passport.session());
 
-// ================== DB CONNECTION ==================
+// ================== DATABASE ==================
 mongoose.connect(process.env.MONGODB_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true
-})
-.then(() => console.log('✅ MongoDB connecté'))
-.catch((err) => console.error('❌ MongoDB erreur :', err));
+}).then(() => console.log('✅ MongoDB connecté'))
+  .catch(err => console.error('❌ MongoDB erreur :', err));
 
 // ================== MODELS ==================
 const User = mongoose.model('User', new mongoose.Schema({
   name: String,
   email: { type: String, unique: true },
   password: String,
-  googleId: String
+  googleId: String,
+  role: { type: String, default: 'member' }
 }));
 
 const Tontine = mongoose.model('Tontine', new mongoose.Schema({
@@ -46,7 +46,7 @@ const Tontine = mongoose.model('Tontine', new mongoose.Schema({
   amount: Number,
   frequency: String,
   admin: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  members: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  members: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }]
 }));
 
 const Cotisation = mongoose.model('Cotisation', new mongoose.Schema({
@@ -54,6 +54,7 @@ const Cotisation = mongoose.model('Cotisation', new mongoose.Schema({
   tontine: { type: mongoose.Schema.Types.ObjectId, ref: 'Tontine' },
   date: Date,
   amount: Number,
+  paid: { type: Boolean, default: true }
 }));
 
 const Tour = mongoose.model('Tour', new mongoose.Schema({
@@ -61,54 +62,58 @@ const Tour = mongoose.model('Tour', new mongoose.Schema({
   beneficiary: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   order: Number,
   date: Date,
-  isPaid: Boolean,
+  isPaid: { type: Boolean, default: false }
 }));
 
-// ================== AUTH ==================
+const Message = mongoose.model('Message', new mongoose.Schema({
+  tontine: { type: mongoose.Schema.Types.ObjectId, ref: 'Tontine' },
+  sender: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  content: String,
+  timestamp: { type: Date, default: Date.now }
+}));
+
+// ================== HELPERS ==================
 function generateToken(user) {
   return jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '7d' });
 }
 
 function authMiddleware(req, res, next) {
   const token = req.headers.authorization?.split(" ")[1];
-  if (!token) return res.status(401).json({ error: 'Token manquant' });
+  if (!token) return res.status(401).json({ error: "Token manquant" });
+
   jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
-    if (err) return res.status(403).json({ error: 'Token invalide' });
+    if (err) return res.status(403).json({ error: "Token invalide" });
     req.userId = decoded.id;
     next();
   });
 }
 
-// ================== ROUTES ==================
-
-// Register
+// ================== AUTH ROUTES ==================
 app.post('/api/register', async (req, res) => {
   const { name, email, password } = req.body;
   const hash = await bcrypt.hash(password, 10);
   try {
     const user = await User.create({ name, email, password: hash });
     res.json({ token: generateToken(user), user });
-  } catch (err) {
-    res.status(400).json({ error: 'Email déjà utilisé.' });
+  } catch {
+    res.status(400).json({ error: "Email déjà utilisé." });
   }
 });
 
-// Login
 app.post('/api/login', async (req, res) => {
   const { email, password } = req.body;
   const user = await User.findOne({ email });
   if (!user || !(await bcrypt.compare(password, user.password)))
-    return res.status(401).json({ error: 'Identifiants incorrects' });
+    return res.status(401).json({ error: "Identifiants incorrects" });
   res.json({ token: generateToken(user), user });
 });
 
-// Get current user
 app.get('/api/me', authMiddleware, async (req, res) => {
   const user = await User.findById(req.userId);
   res.json(user);
 });
 
-// Create tontine
+// ================== TONTINE ROUTES ==================
 app.post('/api/tontines', authMiddleware, async (req, res) => {
   const { name, amount, frequency } = req.body;
   const tontine = await Tontine.create({
@@ -119,23 +124,45 @@ app.post('/api/tontines', authMiddleware, async (req, res) => {
   res.json(tontine);
 });
 
-// Join tontine
-app.post('/api/tontines/:id/join', authMiddleware, async (req, res) => {
-  const tontine = await Tontine.findById(req.params.id);
-  if (!tontine.members.includes(req.userId)) {
-    tontine.members.push(req.userId);
-    await tontine.save();
-  }
-  res.json(tontine);
-});
-
-// Get tontines for user
 app.get('/api/tontines', authMiddleware, async (req, res) => {
   const tontines = await Tontine.find({ members: req.userId }).populate('admin');
   res.json(tontines);
 });
 
-// Add cotisation
+app.put('/api/tontines/:id', authMiddleware, async (req, res) => {
+  const { name, amount, frequency } = req.body;
+  const tontine = await Tontine.findById(req.params.id);
+  if (!tontine || tontine.admin.toString() !== req.userId)
+    return res.status(403).json({ error: "Accès refusé" });
+
+  tontine.name = name ?? tontine.name;
+  tontine.amount = amount ?? tontine.amount;
+  tontine.frequency = frequency ?? tontine.frequency;
+  await tontine.save();
+  res.json(tontine);
+});
+
+app.delete('/api/tontines/:id', authMiddleware, async (req, res) => {
+  const tontine = await Tontine.findById(req.params.id);
+  if (!tontine || tontine.admin.toString() !== req.userId)
+    return res.status(403).json({ error: "Suppression refusée" });
+  await tontine.deleteOne();
+  res.json({ success: true });
+});
+
+app.post('/api/tontines/:id/join', authMiddleware, async (req, res) => {
+  const tontine = await Tontine.findById(req.params.id);
+  if (!tontine) return res.status(404).json({ error: "Tontine introuvable" });
+
+  if (!tontine.members.includes(req.userId)) {
+    tontine.members.push(req.userId);
+    await tontine.save();
+  }
+
+  res.json(tontine);
+});
+
+// ================== COTISATIONS ==================
 app.post('/api/cotisations', authMiddleware, async (req, res) => {
   const { tontineId, amount } = req.body;
   const cotisation = await Cotisation.create({
@@ -145,6 +172,65 @@ app.post('/api/cotisations', authMiddleware, async (req, res) => {
     amount,
   });
   res.json(cotisation);
+});
+
+app.get('/api/cotisations', authMiddleware, async (req, res) => {
+  const cotisations = await Cotisation.find({ user: req.userId }).populate('tontine');
+  res.json(cotisations);
+});
+
+app.get('/api/tontines/:id/cotisations', authMiddleware, async (req, res) => {
+  const cotisations = await Cotisation.find({ tontine: req.params.id }).populate('user');
+  res.json(cotisations);
+});
+
+// ================== TOURS ==================
+app.post('/api/tontines/:id/tours', authMiddleware, async (req, res) => {
+  const { beneficiaryId, order, date } = req.body;
+  const tontine = await Tontine.findById(req.params.id);
+  if (!tontine || tontine.admin.toString() !== req.userId)
+    return res.status(403).json({ error: "Non autorisé" });
+
+  const tour = await Tour.create({
+    tontine: tontine._id,
+    beneficiary: beneficiaryId,
+    order,
+    date,
+    isPaid: false
+  });
+
+  res.json(tour);
+});
+
+app.get('/api/tontines/:id/tours', authMiddleware, async (req, res) => {
+  const tours = await Tour.find({ tontine: req.params.id }).populate('beneficiary').sort("order");
+  res.json(tours);
+});
+
+app.put('/api/tours/:id/pay', authMiddleware, async (req, res) => {
+  const tour = await Tour.findById(req.params.id).populate("tontine");
+  if (!tour || tour.tontine.admin.toString() !== req.userId)
+    return res.status(403).json({ error: "Non autorisé" });
+
+  tour.isPaid = true;
+  await tour.save();
+  res.json(tour);
+});
+
+// ================== MESSAGES ==================
+app.post('/api/tontines/:id/messages', authMiddleware, async (req, res) => {
+  const { content } = req.body;
+  const message = await Message.create({
+    tontine: req.params.id,
+    sender: req.userId,
+    content
+  });
+  res.json(message);
+});
+
+app.get('/api/tontines/:id/messages', authMiddleware, async (req, res) => {
+  const messages = await Message.find({ tontine: req.params.id }).populate('sender').sort({ timestamp: 1 });
+  res.json(messages);
 });
 
 // ================== GOOGLE AUTH ==================
@@ -179,7 +265,7 @@ app.get('/auth/google/callback',
   }
 );
 
-// ================== LAUNCH ==================
+// ================== START SERVER ==================
 app.listen(port, () => {
-  console.log(`🚀 Serveur prêt : http://localhost:${port}`);
+  console.log(`🚀 Serveur démarré sur http://localhost:${port}`);
 });
