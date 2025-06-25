@@ -1,4 +1,3 @@
-// server.js
 const express = require('express');
 const mongoose = require('mongoose');
 const jwt = require('jsonwebtoken');
@@ -12,54 +11,60 @@ require('dotenv').config();
 const app = express();
 const port = process.env.PORT || 5000;
 
-// Middleware
-app.use(cors({ origin: process.env.CLIENT_URL, credentials: true }));
+// ================== MIDDLEWARE ==================
+app.use(cors({
+  origin: [process.env.CLIENT_URL, 'http://localhost:5173'], // Autoriser plusieurs origines
+  credentials: true
+}));
 app.use(express.json());
-app.use(session({ secret: 'secret', resave: false, saveUninitialized: true }));
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'default_secret',
+  resave: false,
+  saveUninitialized: true
+}));
 app.use(passport.initialize());
 app.use(passport.session());
 
-// DB connection
-mongoose.connect(process.env.MONGODB_URI)
-  .then(() => console.log('✅ MongoDB connecté'))
-  .catch((err) => console.error('❌ MongoDB erreur :', err));
+// ================== DB CONNECTION ==================
+mongoose.connect(process.env.MONGODB_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true
+})
+.then(() => console.log('✅ MongoDB connecté'))
+.catch((err) => console.error('❌ MongoDB erreur :', err));
 
-/*=================== MODELS ===================*/
-const UserSchema = new mongoose.Schema({
+// ================== MODELS ==================
+const User = mongoose.model('User', new mongoose.Schema({
   name: String,
   email: { type: String, unique: true },
   password: String,
   googleId: String
-});
-const User = mongoose.model('User', UserSchema);
+}));
 
-const TontineSchema = new mongoose.Schema({
+const Tontine = mongoose.model('Tontine', new mongoose.Schema({
   name: String,
   amount: Number,
-  frequency: String, // ex: 'monthly'
+  frequency: String,
   admin: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   members: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
-});
-const Tontine = mongoose.model('Tontine', TontineSchema);
+}));
 
-const CotisationSchema = new mongoose.Schema({
+const Cotisation = mongoose.model('Cotisation', new mongoose.Schema({
   user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   tontine: { type: mongoose.Schema.Types.ObjectId, ref: 'Tontine' },
   date: Date,
   amount: Number,
-});
-const Cotisation = mongoose.model('Cotisation', CotisationSchema);
+}));
 
-const TourSchema = new mongoose.Schema({
+const Tour = mongoose.model('Tour', new mongoose.Schema({
   tontine: { type: mongoose.Schema.Types.ObjectId, ref: 'Tontine' },
   beneficiary: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   order: Number,
   date: Date,
   isPaid: Boolean,
-});
-const Tour = mongoose.model('Tour', TourSchema);
+}));
 
-/*=================== JWT AUTH ===================*/
+// ================== AUTH ==================
 function generateToken(user) {
   return jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '7d' });
 }
@@ -74,8 +79,7 @@ function authMiddleware(req, res, next) {
   });
 }
 
-/*=================== ROUTES ===================*/
-// Register
+// ================== ROUTES ==================
 app.post('/api/register', async (req, res) => {
   const { name, email, password } = req.body;
   const hash = await bcrypt.hash(password, 10);
@@ -87,7 +91,6 @@ app.post('/api/register', async (req, res) => {
   }
 });
 
-// Login
 app.post('/api/login', async (req, res) => {
   const { email, password } = req.body;
   const user = await User.findOne({ email });
@@ -96,13 +99,11 @@ app.post('/api/login', async (req, res) => {
   res.json({ token: generateToken(user), user });
 });
 
-// Me
 app.get('/api/me', authMiddleware, async (req, res) => {
   const user = await User.findById(req.userId);
   res.json(user);
 });
 
-// Créer une tontine
 app.post('/api/tontines', authMiddleware, async (req, res) => {
   const { name, amount, frequency } = req.body;
   const tontine = await Tontine.create({
@@ -113,7 +114,6 @@ app.post('/api/tontines', authMiddleware, async (req, res) => {
   res.json(tontine);
 });
 
-// Rejoindre une tontine
 app.post('/api/tontines/:id/join', authMiddleware, async (req, res) => {
   const tontine = await Tontine.findById(req.params.id);
   if (!tontine.members.includes(req.userId)) {
@@ -123,13 +123,11 @@ app.post('/api/tontines/:id/join', authMiddleware, async (req, res) => {
   res.json(tontine);
 });
 
-// Liste des tontines
 app.get('/api/tontines', authMiddleware, async (req, res) => {
   const tontines = await Tontine.find({ members: req.userId }).populate('admin');
   res.json(tontines);
 });
 
-// Ajouter une cotisation
 app.post('/api/cotisations', authMiddleware, async (req, res) => {
   const { tontineId, amount } = req.body;
   const cotisation = await Cotisation.create({
@@ -141,7 +139,7 @@ app.post('/api/cotisations', authMiddleware, async (req, res) => {
   res.json(cotisation);
 });
 
-/*=================== GOOGLE AUTH ===================*/
+// ================== GOOGLE AUTH ==================
 passport.use(new GoogleStrategy({
   clientID: process.env.GOOGLE_CLIENT_ID,
   clientSecret: process.env.GOOGLE_CLIENT_SECRET,
@@ -173,7 +171,7 @@ app.get('/auth/google/callback',
   }
 );
 
-/*=================== LAUNCH ===================*/
+// ================== LAUNCH ==================
 app.listen(port, () => {
   console.log(`🚀 Serveur prêt : http://localhost:${port}`);
 });
