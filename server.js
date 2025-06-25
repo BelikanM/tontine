@@ -72,6 +72,15 @@ const Message = mongoose.model('Message', new mongoose.Schema({
   timestamp: { type: Date, default: Date.now }
 }));
 
+// Invitation Model
+const Invitation = mongoose.model('Invitation', new mongoose.Schema({
+  tontine: { type: mongoose.Schema.Types.ObjectId, ref: 'Tontine', required: true },
+  fromUser: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  toUser: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  status: { type: String, enum: ['pending', 'accepted', 'rejected'], default: 'pending' },
+  createdAt: { type: Date, default: Date.now }
+}));
+
 // ================== HELPERS ==================
 function generateToken(user) {
   return jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '7d' });
@@ -231,6 +240,93 @@ app.post('/api/tontines/:id/messages', authMiddleware, async (req, res) => {
 app.get('/api/tontines/:id/messages', authMiddleware, async (req, res) => {
   const messages = await Message.find({ tontine: req.params.id }).populate('sender').sort({ timestamp: 1 });
   res.json(messages);
+});
+
+// ================== INVITATIONS ==================
+
+// Inviter un utilisateur dans une tontine (admin seulement)
+app.post('/api/tontines/:id/invite', authMiddleware, async (req, res) => {
+  const tontineId = req.params.id;
+  const { userId } = req.body;
+
+  try {
+    const tontine = await Tontine.findById(tontineId);
+    if (!tontine) return res.status(404).json({ error: "Tontine introuvable" });
+    if (tontine.admin.toString() !== req.userId) return res.status(403).json({ error: "Non autorisé" });
+
+    if (tontine.members.includes(userId))
+      return res.status(400).json({ error: "Utilisateur déjà membre" });
+
+    const existing = await Invitation.findOne({
+      tontine: tontineId,
+      toUser: userId,
+      status: 'pending'
+    });
+    if (existing)
+      return res.status(400).json({ error: "Invitation déjà envoyée" });
+
+    const invitation = await Invitation.create({
+      tontine: tontineId,
+      fromUser: req.userId,
+      toUser: userId
+    });
+
+    res.json(invitation);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erreur serveur" });
+  }
+});
+
+// Liste des invitations reçues par l'utilisateur connecté
+app.get('/api/invitations', authMiddleware, async (req, res) => {
+  try {
+    const invitations = await Invitation.find({ toUser: req.userId, status: 'pending' })
+      .populate('tontine', 'name')
+      .populate('fromUser', 'name');
+    res.json(invitations);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erreur serveur" });
+  }
+});
+
+// Accepter une invitation
+app.post('/api/invitations/:id/accept', authMiddleware, async (req, res) => {
+  const invitationId = req.params.id;
+  try {
+    const invitation = await Invitation.findById(invitationId);
+    if (!invitation) return res.status(404).json({ error: "Invitation introuvable" });
+    if (invitation.toUser.toString() !== req.userId) return res.status(403).json({ error: "Non autorisé" });
+    if (invitation.status !== 'pending') return res.status(400).json({ error: "Invitation déjà traitée" });
+
+    const tontine = await Tontine.findById(invitation.tontine);
+    if (!tontine) return res.status(404).json({ error: "Tontine introuvable" });
+
+    if (!tontine.members.includes(req.userId)) {
+      tontine.members.push(req.userId);
+      await tontine.save();
+    }
+
+    invitation.status = 'accepted';
+    await invitation.save();
+
+    res.json({ message: "Invitation acceptée, vous êtes ajouté à la tontine" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erreur serveur" });
+  }
+});
+
+// Liste tous les utilisateurs sauf soi-même (pour inviter)
+app.get('/api/users', authMiddleware, async (req, res) => {
+  try {
+    const users = await User.find({ _id: { $ne: req.userId } }, 'name email');
+    res.json(users);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erreur serveur" });
+  }
 });
 
 // ================== GOOGLE AUTH ==================

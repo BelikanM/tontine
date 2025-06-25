@@ -13,6 +13,7 @@ const TontineCreate = () => {
   });
 
   const [tontines, setTontines] = useState([]);
+  const [users, setUsers] = useState([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -33,14 +34,27 @@ const TontineCreate = () => {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      setTontines(data);
+      setTontines(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error("Erreur de récupération :", err);
     }
   };
 
+  const fetchUsers = async () => {
+    try {
+      const res = await fetch("http://localhost:5000/api/users", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      setUsers(Array.isArray(data) ? data.filter(u => u._id !== user._id) : []);
+    } catch (err) {
+      console.error("Erreur de récupération des utilisateurs :", err);
+    }
+  };
+
   useEffect(() => {
     fetchTontines();
+    fetchUsers();
   }, []);
 
   const handleCreate = async (e) => {
@@ -100,6 +114,24 @@ const TontineCreate = () => {
       fetchTontines();
     } catch (err) {
       alert(err.message);
+    }
+  };
+
+  const handleInvite = async (receiverId) => {
+    try {
+      const res = await fetch(`http://localhost:5000/api/invitations`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ receiverId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      alert("Invitation envoyée !");
+    } catch (err) {
+      alert("Erreur lors de l'envoi de l'invitation : " + err.message);
     }
   };
 
@@ -171,6 +203,22 @@ const TontineCreate = () => {
             </div>
           </div>
         ))}
+      </div>
+
+      <div style={{ marginTop: 40 }}>
+        <h3>Utilisateurs inscrits</h3>
+        {users.length === 0 ? (
+          <p>Aucun autre utilisateur trouvé.</p>
+        ) : (
+          users.map((u) => (
+            <div key={u._id} style={styles.userCard}>
+              {u.name} ({u.email})
+              <button onClick={() => handleInvite(u._id)} style={styles.inviteBtn}>
+                Inviter
+              </button>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );
@@ -248,6 +296,24 @@ const styles = {
     background: "#007bff",
     color: "#fff",
     border: "none",
+    padding: "8px 12px",
+    borderRadius: "6px",
+    cursor: "pointer",
+  },
+  userCard: {
+    background: "#fff",
+    padding: "12px",
+    borderRadius: "8px",
+    border: "1px solid #ddd",
+    marginBottom: "10px",
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  inviteBtn: {
+    background: "#FF9900",
+    border: "none",
+    color: "#fff",
     padding: "8px 12px",
     borderRadius: "6px",
     cursor: "pointer",
