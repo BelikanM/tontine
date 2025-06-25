@@ -72,7 +72,6 @@ const Message = mongoose.model('Message', new mongoose.Schema({
   timestamp: { type: Date, default: Date.now }
 }));
 
-// Invitation Model
 const Invitation = mongoose.model('Invitation', new mongoose.Schema({
   tontine: { type: mongoose.Schema.Types.ObjectId, ref: 'Tontine', required: true },
   fromUser: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
@@ -99,157 +98,231 @@ function authMiddleware(req, res, next) {
 
 // ================== AUTH ROUTES ==================
 app.post('/api/register', async (req, res) => {
-  const { name, email, password } = req.body;
-  const hash = await bcrypt.hash(password, 10);
   try {
+    const { name, email, password } = req.body;
+    const hash = await bcrypt.hash(password, 10);
     const user = await User.create({ name, email, password: hash });
     res.json({ token: generateToken(user), user });
-  } catch {
-    res.status(400).json({ error: "Email déjà utilisé." });
+  } catch (err) {
+    console.error("Erreur inscription:", err);
+    res.status(400).json({ error: "Email déjà utilisé ou erreur" });
   }
 });
 
 app.post('/api/login', async (req, res) => {
-  const { email, password } = req.body;
-  const user = await User.findOne({ email });
-  if (!user || !(await bcrypt.compare(password, user.password)))
-    return res.status(401).json({ error: "Identifiants incorrects" });
-  res.json({ token: generateToken(user), user });
+  try {
+    const { email, password } = req.body;
+    const user = await User.findOne({ email });
+    if (!user || !(await bcrypt.compare(password, user.password))) {
+      return res.status(401).json({ error: "Identifiants incorrects" });
+    }
+    res.json({ token: generateToken(user), user });
+  } catch (err) {
+    console.error("Erreur login:", err);
+    res.status(500).json({ error: "Erreur serveur" });
+  }
 });
 
 app.get('/api/me', authMiddleware, async (req, res) => {
-  const user = await User.findById(req.userId);
-  res.json(user);
+  try {
+    const user = await User.findById(req.userId);
+    res.json(user);
+  } catch (err) {
+    console.error("Erreur récupération utilisateur:", err);
+    res.status(500).json({ error: "Erreur serveur" });
+  }
 });
 
 // ================== TONTINE ROUTES ==================
 app.post('/api/tontines', authMiddleware, async (req, res) => {
-  const { name, amount, frequency } = req.body;
-  const tontine = await Tontine.create({
-    name, amount, frequency,
-    admin: req.userId,
-    members: [req.userId]
-  });
-  res.json(tontine);
+  try {
+    const { name, amount, frequency } = req.body;
+    const tontine = await Tontine.create({
+      name, amount, frequency,
+      admin: req.userId,
+      members: [req.userId]
+    });
+    res.json(tontine);
+  } catch (err) {
+    console.error("Erreur création tontine:", err);
+    res.status(500).json({ error: "Erreur serveur" });
+  }
 });
 
 app.get('/api/tontines', authMiddleware, async (req, res) => {
-  const tontines = await Tontine.find({ members: req.userId }).populate('admin');
-  res.json(tontines);
+  try {
+    const tontines = await Tontine.find({ members: req.userId }).populate('admin');
+    res.json(tontines);
+  } catch (err) {
+    console.error("Erreur récupération tontines:", err);
+    res.status(500).json({ error: "Erreur serveur" });
+  }
 });
 
 app.put('/api/tontines/:id', authMiddleware, async (req, res) => {
-  const { name, amount, frequency } = req.body;
-  const tontine = await Tontine.findById(req.params.id);
-  if (!tontine || tontine.admin.toString() !== req.userId)
-    return res.status(403).json({ error: "Accès refusé" });
-
-  tontine.name = name ?? tontine.name;
-  tontine.amount = amount ?? tontine.amount;
-  tontine.frequency = frequency ?? tontine.frequency;
-  await tontine.save();
-  res.json(tontine);
+  try {
+    const { name, amount, frequency } = req.body;
+    const tontine = await Tontine.findById(req.params.id);
+    if (!tontine || tontine.admin.toString() !== req.userId) {
+      return res.status(403).json({ error: "Accès refusé" });
+    }
+    tontine.name = name ?? tontine.name;
+    tontine.amount = amount ?? tontine.amount;
+    tontine.frequency = frequency ?? tontine.frequency;
+    await tontine.save();
+    res.json(tontine);
+  } catch (err) {
+    console.error("Erreur mise à jour tontine:", err);
+    res.status(500).json({ error: "Erreur serveur" });
+  }
 });
 
 app.delete('/api/tontines/:id', authMiddleware, async (req, res) => {
-  const tontine = await Tontine.findById(req.params.id);
-  if (!tontine || tontine.admin.toString() !== req.userId)
-    return res.status(403).json({ error: "Suppression refusée" });
-  await tontine.deleteOne();
-  res.json({ success: true });
+  try {
+    const tontine = await Tontine.findById(req.params.id);
+    if (!tontine || tontine.admin.toString() !== req.userId) {
+      return res.status(403).json({ error: "Suppression refusée" });
+    }
+    await tontine.deleteOne();
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Erreur suppression tontine:", err);
+    res.status(500).json({ error: "Erreur serveur" });
+  }
 });
 
 app.post('/api/tontines/:id/join', authMiddleware, async (req, res) => {
-  const tontine = await Tontine.findById(req.params.id);
-  if (!tontine) return res.status(404).json({ error: "Tontine introuvable" });
+  try {
+    const tontine = await Tontine.findById(req.params.id);
+    if (!tontine) return res.status(404).json({ error: "Tontine introuvable" });
 
-  if (!tontine.members.includes(req.userId)) {
-    tontine.members.push(req.userId);
-    await tontine.save();
+    if (!tontine.members.includes(req.userId)) {
+      tontine.members.push(req.userId);
+      await tontine.save();
+    }
+    res.json(tontine);
+  } catch (err) {
+    console.error("Erreur rejoindre tontine:", err);
+    res.status(500).json({ error: "Erreur serveur" });
   }
-
-  res.json(tontine);
 });
 
 // ================== COTISATIONS ==================
 app.post('/api/cotisations', authMiddleware, async (req, res) => {
-  const { tontineId, amount } = req.body;
-  const cotisation = await Cotisation.create({
-    user: req.userId,
-    tontine: tontineId,
-    date: new Date(),
-    amount,
-  });
-  res.json(cotisation);
+  try {
+    const { tontineId, amount } = req.body;
+    const cotisation = await Cotisation.create({
+      user: req.userId,
+      tontine: tontineId,
+      date: new Date(),
+      amount,
+    });
+    res.json(cotisation);
+  } catch (err) {
+    console.error("Erreur création cotisation:", err);
+    res.status(500).json({ error: "Erreur serveur" });
+  }
 });
 
 app.get('/api/cotisations', authMiddleware, async (req, res) => {
-  const cotisations = await Cotisation.find({ user: req.userId }).populate('tontine');
-  res.json(cotisations);
+  try {
+    const cotisations = await Cotisation.find({ user: req.userId }).populate('tontine');
+    res.json(cotisations);
+  } catch (err) {
+    console.error("Erreur récupération cotisations:", err);
+    res.status(500).json({ error: "Erreur serveur" });
+  }
 });
 
 app.get('/api/tontines/:id/cotisations', authMiddleware, async (req, res) => {
-  const cotisations = await Cotisation.find({ tontine: req.params.id }).populate('user');
-  res.json(cotisations);
+  try {
+    const cotisations = await Cotisation.find({ tontine: req.params.id }).populate('user');
+    res.json(cotisations);
+  } catch (err) {
+    console.error("Erreur récupération cotisations tontine:", err);
+    res.status(500).json({ error: "Erreur serveur" });
+  }
 });
 
 // ================== TOURS ==================
 app.post('/api/tontines/:id/tours', authMiddleware, async (req, res) => {
-  const { beneficiaryId, order, date } = req.body;
-  const tontine = await Tontine.findById(req.params.id);
-  if (!tontine || tontine.admin.toString() !== req.userId)
-    return res.status(403).json({ error: "Non autorisé" });
-
-  const tour = await Tour.create({
-    tontine: tontine._id,
-    beneficiary: beneficiaryId,
-    order,
-    date,
-    isPaid: false
-  });
-
-  res.json(tour);
+  try {
+    const { beneficiaryId, order, date } = req.body;
+    const tontine = await Tontine.findById(req.params.id);
+    if (!tontine || tontine.admin.toString() !== req.userId) {
+      return res.status(403).json({ error: "Non autorisé" });
+    }
+    const tour = await Tour.create({
+      tontine: tontine._id,
+      beneficiary: beneficiaryId,
+      order,
+      date,
+      isPaid: false
+    });
+    res.json(tour);
+  } catch (err) {
+    console.error("Erreur création tour:", err);
+    res.status(500).json({ error: "Erreur serveur" });
+  }
 });
 
 app.get('/api/tontines/:id/tours', authMiddleware, async (req, res) => {
-  const tours = await Tour.find({ tontine: req.params.id }).populate('beneficiary').sort("order");
-  res.json(tours);
+  try {
+    const tours = await Tour.find({ tontine: req.params.id }).populate('beneficiary').sort("order");
+    res.json(tours);
+  } catch (err) {
+    console.error("Erreur récupération tours:", err);
+    res.status(500).json({ error: "Erreur serveur" });
+  }
 });
 
 app.put('/api/tours/:id/pay', authMiddleware, async (req, res) => {
-  const tour = await Tour.findById(req.params.id).populate("tontine");
-  if (!tour || tour.tontine.admin.toString() !== req.userId)
-    return res.status(403).json({ error: "Non autorisé" });
-
-  tour.isPaid = true;
-  await tour.save();
-  res.json(tour);
+  try {
+    const tour = await Tour.findById(req.params.id).populate("tontine");
+    if (!tour || tour.tontine.admin.toString() !== req.userId) {
+      return res.status(403).json({ error: "Non autorisé" });
+    }
+    tour.isPaid = true;
+    await tour.save();
+    res.json(tour);
+  } catch (err) {
+    console.error("Erreur paiement tour:", err);
+    res.status(500).json({ error: "Erreur serveur" });
+  }
 });
 
 // ================== MESSAGES ==================
 app.post('/api/tontines/:id/messages', authMiddleware, async (req, res) => {
-  const { content } = req.body;
-  const message = await Message.create({
-    tontine: req.params.id,
-    sender: req.userId,
-    content
-  });
-  res.json(message);
+  try {
+    const { content } = req.body;
+    const message = await Message.create({
+      tontine: req.params.id,
+      sender: req.userId,
+      content
+    });
+    res.json(message);
+  } catch (err) {
+    console.error("Erreur création message:", err);
+    res.status(500).json({ error: "Erreur serveur" });
+  }
 });
 
 app.get('/api/tontines/:id/messages', authMiddleware, async (req, res) => {
-  const messages = await Message.find({ tontine: req.params.id }).populate('sender').sort({ timestamp: 1 });
-  res.json(messages);
+  try {
+    const messages = await Message.find({ tontine: req.params.id }).populate('sender').sort({ timestamp: 1 });
+    res.json(messages);
+  } catch (err) {
+    console.error("Erreur récupération messages:", err);
+    res.status(500).json({ error: "Erreur serveur" });
+  }
 });
 
 // ================== INVITATIONS ==================
-
-// Inviter un utilisateur dans une tontine (admin seulement)
 app.post('/api/tontines/:id/invite', authMiddleware, async (req, res) => {
-  const tontineId = req.params.id;
-  const { userId } = req.body;
-
   try {
+    const tontineId = req.params.id;
+    const { userId } = req.body;
+
     const tontine = await Tontine.findById(tontineId);
     if (!tontine) return res.status(404).json({ error: "Tontine introuvable" });
     if (tontine.admin.toString() !== req.userId) return res.status(403).json({ error: "Non autorisé" });
@@ -273,12 +346,11 @@ app.post('/api/tontines/:id/invite', authMiddleware, async (req, res) => {
 
     res.json(invitation);
   } catch (err) {
-    console.error(err);
+    console.error("Erreur invitation:", err);
     res.status(500).json({ error: "Erreur serveur" });
   }
 });
 
-// Liste des invitations reçues par l'utilisateur connecté
 app.get('/api/invitations', authMiddleware, async (req, res) => {
   try {
     const invitations = await Invitation.find({ toUser: req.userId, status: 'pending' })
@@ -286,15 +358,14 @@ app.get('/api/invitations', authMiddleware, async (req, res) => {
       .populate('fromUser', 'name');
     res.json(invitations);
   } catch (err) {
-    console.error(err);
+    console.error("Erreur récupération invitations:", err);
     res.status(500).json({ error: "Erreur serveur" });
   }
 });
 
-// Accepter une invitation
 app.post('/api/invitations/:id/accept', authMiddleware, async (req, res) => {
-  const invitationId = req.params.id;
   try {
+    const invitationId = req.params.id;
     const invitation = await Invitation.findById(invitationId);
     if (!invitation) return res.status(404).json({ error: "Invitation introuvable" });
     if (invitation.toUser.toString() !== req.userId) return res.status(403).json({ error: "Non autorisé" });
@@ -313,18 +384,17 @@ app.post('/api/invitations/:id/accept', authMiddleware, async (req, res) => {
 
     res.json({ message: "Invitation acceptée, vous êtes ajouté à la tontine" });
   } catch (err) {
-    console.error(err);
+    console.error("Erreur acceptation invitation:", err);
     res.status(500).json({ error: "Erreur serveur" });
   }
 });
 
-// Liste tous les utilisateurs sauf soi-même (pour inviter)
 app.get('/api/users', authMiddleware, async (req, res) => {
   try {
     const users = await User.find({ _id: { $ne: req.userId } }, 'name email');
     res.json(users);
   } catch (err) {
-    console.error(err);
+    console.error("Erreur récupération utilisateurs:", err);
     res.status(500).json({ error: "Erreur serveur" });
   }
 });
@@ -335,21 +405,30 @@ passport.use(new GoogleStrategy({
   clientSecret: process.env.GOOGLE_CLIENT_SECRET,
   callbackURL: process.env.GOOGLE_CALLBACK_URL
 }, async (accessToken, refreshToken, profile, done) => {
-  let user = await User.findOne({ googleId: profile.id });
-  if (!user) {
-    user = await User.create({
-      googleId: profile.id,
-      name: profile.displayName,
-      email: profile.emails[0].value
-    });
+  try {
+    let user = await User.findOne({ googleId: profile.id });
+    if (!user) {
+      user = await User.create({
+        googleId: profile.id,
+        name: profile.displayName,
+        email: profile.emails[0].value
+      });
+    }
+    return done(null, user);
+  } catch (err) {
+    console.error("Erreur Google auth:", err);
+    return done(err, null);
   }
-  return done(null, user);
 }));
 
 passport.serializeUser((user, done) => done(null, user.id));
 passport.deserializeUser(async (id, done) => {
-  const user = await User.findById(id);
-  done(null, user);
+  try {
+    const user = await User.findById(id);
+    done(null, user);
+  } catch (err) {
+    done(err, null);
+  }
 });
 
 app.get('/auth/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
