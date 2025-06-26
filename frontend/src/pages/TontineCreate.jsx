@@ -73,7 +73,6 @@ const TontineCreate = () => {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur serveur");
       setUsers(Array.isArray(data) ? data.filter((u) => u._id !== user._id) : []);
-      // Fetch reliability scores for users
       await fetchReliabilityScores(data.filter((u) => u._id !== user._id));
     } catch (err) {
       console.error("Erreur de récupération des utilisateurs :", err);
@@ -143,12 +142,10 @@ const TontineCreate = () => {
   // --- MODELE TensorFlow.js POUR PREDICTION DE FIABILITE ---
   const predictReliability = async (cotisations) => {
     try {
-      // Préparer les données : pourcentage de paiements à temps
       const totalCotisations = cotisations.length;
       const paidOnTime = cotisations.filter((c) => c.paid).length;
       const paymentRate = totalCotisations > 0 ? paidOnTime / totalCotisations : 0;
 
-      // Créer un modèle simple
       const model = tf.sequential();
       model.add(tf.layers.dense({ units: 10, inputShape: [1], activation: "relu" }));
       model.add(tf.layers.dense({ units: 1, activation: "sigmoid" }));
@@ -159,17 +156,14 @@ const TontineCreate = () => {
         metrics: ["accuracy"],
       });
 
-      // Données d'entraînement simulées (à remplacer par des données réelles si disponibles)
       const xs = tf.tensor2d([[0.0], [0.2], [0.4], [0.6], [0.8], [1.0]]);
       const ys = tf.tensor2d([[0], [0], [0], [1], [1], [1]]);
 
-      // Entraîner le modèle
       await model.fit(xs, ys, {
         epochs: 50,
         verbose: 0,
       });
 
-      // Prédire la fiabilité
       const input = tf.tensor2d([[paymentRate]]);
       const prediction = model.predict(input);
       const score = (await prediction.data())[0];
@@ -177,10 +171,10 @@ const TontineCreate = () => {
       prediction.dispose();
       model.dispose();
 
-      return Math.round(score * 100); // Retourner un score en pourcentage
+      return Math.round(score * 100);
     } catch (err) {
       console.error("Erreur de prédiction de fiabilité :", err);
-      return 50; // Score par défaut en cas d'erreur
+      return 50;
     }
   };
 
@@ -496,7 +490,14 @@ const TontineCreate = () => {
               <div>
                 {u.name} ({u.email})
                 <br />
-                Fiabilité : {reliabilityScores[u._id] || "Calcul en cours..."}%
+                Fiabilité :{" "}
+                <span
+                  style={{
+                    color: reliabilityScores[u._id] >= 70 ? "green" : "red",
+                  }}
+                >
+                  {reliabilityScores[u._id] || "Calcul en cours..."}%
+                </span>
               </div>
               <button
                 onClick={() => handleInvite(u._id)}

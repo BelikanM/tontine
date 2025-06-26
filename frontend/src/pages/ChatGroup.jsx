@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useContext } from "react";
 import { AuthContext } from "../context/AuthContext";
 import { useParams } from "react-router-dom";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
 const TontineChat = () => {
   const { user } = useContext(AuthContext);
@@ -11,6 +12,7 @@ const TontineChat = () => {
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [availableUsers, setAvailableUsers] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
+  const [reliabilityScores, setReliabilityScores] = useState({});
 
   const token = localStorage.getItem("token");
 
@@ -21,10 +23,10 @@ const TontineChat = () => {
           Authorization: `Bearer ${token}`,
         },
       });
-
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur serveur");
       setMessages(data);
+      await calculateMessageReliability(data);
     } catch (err) {
       setError("Erreur de chargement des messages");
       console.error(err.message);
@@ -41,10 +43,84 @@ const TontineChat = () => {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur serveur");
       setAvailableUsers(data.filter(u => u._id !== user._id));
+      await fetchReliabilityScores(data.filter(u => u._id !== user._id));
     } catch (err) {
       setError("Erreur de chargement des utilisateurs");
       console.error(err.message);
     }
+  };
+
+  const fetchUserCotisations = async (userId) => {
+    try {
+      const res = await fetch(`http://localhost:5000/api/cotisations?userId=${userId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Erreur serveur");
+      return Array.isArray(data) ? data : [];
+    } catch (err) {
+      console.error("Erreur de récupération des cotisations :", err);
+      return [];
+    }
+  };
+
+  const calculateCotisationReliability = async (cotisations) => {
+    try {
+      const totalCotisations = cotisations.length;
+      const paidOnTime = cotisations.filter((c) => c.paid).length;
+      const paymentRate = totalCotisations > 0 ? paidOnTime / totalCotisations : 0;
+      return Math.round(paymentRate * 100);
+    } catch (err) {
+      console.error("Erreur de calcul de fiabilité des cotisations :", err);
+      return 50;
+    }
+  };
+
+  const calculateMessageReliability = async (messages) => {
+    const messageCounts = {};
+    const totalMessages = messages.length;
+
+    messages.forEach((msg) => {
+      const userId = msg.sender._id;
+      messageCounts[userId] = (messageCounts[userId] || 0) + 1;
+    });
+
+    const scores = {};
+    for (const userId in messageCounts) {
+      const messageScore = Math.min((messageCounts[userId] / totalMessages) * 100, 100);
+      scores[userId] = messageScore;
+    }
+
+    setReliabilityScores((prev) => ({
+      ...prev,
+      ...Object.fromEntries(
+        Object.entries(scores).map(([id, score]) => [id, { message: score }])
+      ),
+    }));
+  };
+
+  const fetchReliabilityScores = async (users) => {
+    const scores = {};
+    for (const u of users) {
+      const cotisations = await fetchUserCotisations(u._id);
+      const cotisationScore = await calculateCotisationReliability(cotisations);
+      scores[u._id] = { cotisation: cotisationScore };
+    }
+
+    setReliabilityScores((prev) => ({
+      ...prev,
+      ...Object.fromEntries(
+        Object.entries(scores).map(([id, score]) => [
+          id,
+          { ...prev[id], ...score },
+        ])
+      ),
+    }));
+  };
+
+  const getCombinedReliabilityScore = (userId) => {
+    const scores = reliabilityScores[userId] || { cotisation: 50, message: 50 };
+    return Math.round((scores.cotisation * 0.6 + scores.message * 0.4));
   };
 
   const handleSend = async () => {
@@ -65,6 +141,7 @@ const TontineChat = () => {
 
       setContent("");
       setMessages((prev) => [...prev, data]);
+      await calculateMessageReliability([...messages, data]);
     } catch (err) {
       setError("Erreur d'envoi du message");
       console.error(err.message);
@@ -104,6 +181,11 @@ const TontineChat = () => {
     user.email.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const chartData = filteredUsers.map(user => ({
+    name: user.name,
+    reliability: getCombinedReliabilityScore(user._id),
+  }));
+
   return (
     <div style={styles.container}>
       <div style={styles.header}>
@@ -129,7 +211,15 @@ const TontineChat = () => {
               msg.sender._id === user._id ? styles.myMessage : styles.otherMessage
             }
           >
-            <strong>{msg.sender.name}:</strong> <br />
+            <strong>{msg.sender.name}:</strong>{" "}
+            <span
+              style={{
+                color: getCombinedReliabilityScore(msg.sender._id) >= 70 ? "green" : "red",
+              }}
+            >
+              (Fiabilité: {getCombinedReliabilityScore(msg.sender._id)}%)
+            </span>
+            <br />
             <span>{msg.content}</span>
             <div style={styles.timestamp}>
               {new Date(msg.timestamp).toLocaleTimeString()}
@@ -175,6 +265,17 @@ const TontineChat = () => {
                       <strong>{user.name}</strong>
                       <br />
                       <small>{user.email}</small>
+                      <br />
+                      <small>
+                        Fiabilité :{" "}
+                        <span
+                          style={{
+                            color: getCombinedReliabilityScore(user._id) >= 70 ? "green" : "red",
+                          }}
+                        >
+                          {getCombinedReliabilityScore(user._id)}%
+                        </span>
+                      </small>
                     </div>
                     <button 
                       onClick={() => handleInviteUser(user._id)} 
@@ -188,6 +289,22 @@ const TontineChat = () => {
                 <p>Aucun utilisateur trouvé</p>
               )}
             </div>
+
+            {/* Graphique de fiabilité */}
+            {filteredUsers.length > 0 && (
+              <div style={{ marginTop: 20, height: 200 }}>
+                <h4>Fiabilité des utilisateurs</h4>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" />
+                    <YAxis domain={[0, 100]} />
+                    <Tooltip />
+                    <Bar dataKey="reliability" fill="#25D366" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
             
             <button 
               onClick={() => setShowInviteModal(false)} 
@@ -277,7 +394,6 @@ const styles = {
     color: "red",
     textAlign: "center",
   },
-  // Modal styles
   modalOverlay: {
     position: "fixed",
     top: 0,
@@ -337,4 +453,3 @@ const styles = {
 };
 
 export default TontineChat;
-
