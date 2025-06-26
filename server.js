@@ -389,6 +389,26 @@ app.post('/api/invitations/:id/accept', authMiddleware, async (req, res) => {
   }
 });
 
+app.post('/api/invitations/:id/reject', authMiddleware, async (req, res) => {
+  try {
+    const invitationId = req.params.id;
+    const invitation = await Invitation.findById(invitationId);
+    if (!invitation) return res.status(404).json({ error: "Invitation introuvable" });
+    if (invitation.toUser.toString() !== req.userId)
+      return res.status(403).json({ error: "Non autorisé" });
+    if (invitation.status !== 'pending')
+      return res.status(400).json({ error: "Invitation déjà traitée" });
+
+    invitation.status = 'rejected';
+    await invitation.save();
+
+    res.json({ message: "Invitation rejetée" });
+  } catch (err) {
+    console.error("Erreur rejet invitation:", err);
+    res.status(500).json({ error: "Erreur serveur" });
+  }
+});
+
 app.get('/api/users', authMiddleware, async (req, res) => {
   try {
     const users = await User.find({ _id: { $ne: req.userId } }, 'name email');
