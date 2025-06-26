@@ -52,9 +52,11 @@ const TontineCreate = () => {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Erreur serveur");
       setTontines(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error("Erreur de récupération des tontines :", err);
+      setError("Erreur de récupération des tontines");
     }
   };
 
@@ -65,9 +67,11 @@ const TontineCreate = () => {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Erreur serveur");
       setUsers(Array.isArray(data) ? data.filter((u) => u._id !== user._id) : []);
     } catch (err) {
       console.error("Erreur de récupération des utilisateurs :", err);
+      setError("Erreur de récupération des utilisateurs");
     }
   };
 
@@ -78,9 +82,11 @@ const TontineCreate = () => {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Erreur serveur");
       setInvitations(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error("Erreur de récupération des invitations :", err);
+      setError("Erreur de récupération des invitations");
     }
   };
 
@@ -94,9 +100,11 @@ const TontineCreate = () => {
         }
       );
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Erreur serveur");
       setMessages(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error("Erreur de récupération des messages :", err);
+      setError("Erreur de récupération des messages");
     }
   };
 
@@ -110,7 +118,7 @@ const TontineCreate = () => {
       const res = await fetch("http://localhost:5000/api/tontines", {
         method: "POST",
         headers: {
-          "Content-Type": "application/json",
+          "Content-type": "application/json",
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
@@ -141,11 +149,11 @@ const TontineCreate = () => {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      if (!res.ok) throw new Error(data.error || "Erreur serveur");
       fetchTontines();
       if (selectedTontine === id) setSelectedTontine(null);
     } catch (err) {
-      alert(err.message);
+      setError(err.message);
     }
   };
 
@@ -157,10 +165,10 @@ const TontineCreate = () => {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      if (!res.ok) throw new Error(data.error || "Erreur serveur");
       fetchTontines();
     } catch (err) {
-      alert(err.message);
+      setError(err.message);
     }
   };
 
@@ -178,16 +186,16 @@ const TontineCreate = () => {
           method: "POST",
           headers: {
             Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
+            "Content-type": "application/json",
           },
           body: JSON.stringify({ userId: toUserId }),
         }
       );
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      if (!res.ok) throw new Error(data.error || "Erreur serveur");
       setInviteSuccess("Invitation envoyée avec succès !");
       setInviteError("");
-      fetchInvitations(); // Rafraîchir les invitations
+      fetchInvitations();
     } catch (err) {
       setInviteError("Erreur lors de l'envoi de l'invitation : " + err.message);
       setInviteSuccess("");
@@ -205,7 +213,7 @@ const TontineCreate = () => {
         }
       );
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      if (!res.ok) throw new Error(data.error || "Erreur serveur");
       setInviteSuccess("Invitation acceptée ! Vous avez rejoint la tontine.");
       setInviteError("");
       fetchTontines();
@@ -227,7 +235,7 @@ const TontineCreate = () => {
         }
       );
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      if (!res.ok) throw new Error(data.error || "Erreur serveur");
       setInviteSuccess("Invitation rejetée.");
       setInviteError("");
       fetchInvitations();
@@ -247,17 +255,17 @@ const TontineCreate = () => {
           method: "POST",
           headers: {
             Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
+            "Content-type": "application/json",
           },
           body: JSON.stringify({ content: newMessage }),
         }
       );
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      if (!res.ok) throw new Error(data.error || "Erreur serveur");
       setNewMessage("");
       fetchMessages(selectedTontine);
     } catch (err) {
-      alert("Erreur envoi message : " + err.message);
+      setError("Erreur envoi message : " + err.message);
     }
   };
 
@@ -284,12 +292,11 @@ const TontineCreate = () => {
       {/* === NOTIFICATIONS === */}
       {inviteSuccess && <p style={styles.success}>{inviteSuccess}</p>}
       {inviteError && <p style={styles.error}>{inviteError}</p>}
+      {error && <p style={styles.error}>{error}</p>}
 
       {/* === FORM CREATION TONTINE === */}
       <form onSubmit={handleCreate} style={styles.form}>
         <h2 style={styles.title}>Créer une Tontine</h2>
-        {error && <p style={styles.error}>{error}</p>}
-
         <input
           type="text"
           name="name"
@@ -299,7 +306,6 @@ const TontineCreate = () => {
           required
           style={styles.input}
         />
-
         <input
           type="number"
           name="amount"
@@ -309,7 +315,6 @@ const TontineCreate = () => {
           required
           style={styles.input}
         />
-
         <select
           name="frequency"
           value={form.frequency}
@@ -322,7 +327,6 @@ const TontineCreate = () => {
             </option>
           ))}
         </select>
-
         <button type="submit" style={styles.button} disabled={loading}>
           {loading ? "Création..." : "Créer"}
         </button>
@@ -332,7 +336,6 @@ const TontineCreate = () => {
       <div style={styles.list}>
         <h3 style={{ marginBottom: 10 }}>Mes Tontines</h3>
         {tontines.length === 0 && <p>Aucune tontine trouvée.</p>}
-
         {tontines.map((t) => (
           <div
             key={t._id}
