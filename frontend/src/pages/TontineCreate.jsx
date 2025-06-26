@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useContext } from "react";
 import { AuthContext } from "../context/AuthContext";
 import { useNavigate } from "react-router-dom";
+import * as tf from "@tensorflow/tfjs";
 
 const TontineCreate = () => {
   const { user } = useContext(AuthContext);
@@ -32,6 +33,9 @@ const TontineCreate = () => {
   // --- MISC ---
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // --- RELIABILITY SCORES ---
+  const [reliabilityScores, setReliabilityScores] = useState({});
 
   const token = localStorage.getItem("token");
 
@@ -69,6 +73,8 @@ const TontineCreate = () => {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur serveur");
       setUsers(Array.isArray(data) ? data.filter((u) => u._id !== user._id) : []);
+      // Fetch reliability scores for users
+      await fetchReliabilityScores(data.filter((u) => u._id !== user._id));
     } catch (err) {
       console.error("Erreur de récupération des utilisateurs :", err);
       setError("Erreur de récupération des utilisateurs");
@@ -105,6 +111,76 @@ const TontineCreate = () => {
     } catch (err) {
       console.error("Erreur de récupération des messages :", err);
       setError("Erreur de récupération des messages");
+    }
+  };
+
+  // --- FETCH COTISATIONS pour un utilisateur ---
+  const fetchUserCotisations = async (userId) => {
+    try {
+      const res = await fetch(`http://localhost:5000/api/cotisations?userId=${userId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Erreur serveur");
+      return Array.isArray(data) ? data : [];
+    } catch (err) {
+      console.error("Erreur de récupération des cotisations :", err);
+      return [];
+    }
+  };
+
+  // --- PREDIRE LA FIABILITE DES UTILISATEURS ---
+  const fetchReliabilityScores = async (users) => {
+    const scores = {};
+    for (const u of users) {
+      const cotisations = await fetchUserCotisations(u._id);
+      const score = await predictReliability(cotisations);
+      scores[u._id] = score;
+    }
+    setReliabilityScores(scores);
+  };
+
+  // --- MODELE TensorFlow.js POUR PREDICTION DE FIABILITE ---
+  const predictReliability = async (cotisations) => {
+    try {
+      // Préparer les données : pourcentage de paiements à temps
+      const totalCotisations = cotisations.length;
+      const paidOnTime = cotisations.filter((c) => c.paid).length;
+      const paymentRate = totalCotisations > 0 ? paidOnTime / totalCotisations : 0;
+
+      // Créer un modèle simple
+      const model = tf.sequential();
+      model.add(tf.layers.dense({ units: 10, inputShape: [1], activation: "relu" }));
+      model.add(tf.layers.dense({ units: 1, activation: "sigmoid" }));
+
+      model.compile({
+        optimizer: tf.train.adam(0.01),
+        loss: "binaryCrossentropy",
+        metrics: ["accuracy"],
+      });
+
+      // Données d'entraînement simulées (à remplacer par des données réelles si disponibles)
+      const xs = tf.tensor2d([[0.0], [0.2], [0.4], [0.6], [0.8], [1.0]]);
+      const ys = tf.tensor2d([[0], [0], [0], [1], [1], [1]]);
+
+      // Entraîner le modèle
+      await model.fit(xs, ys, {
+        epochs: 50,
+        verbose: 0,
+      });
+
+      // Prédire la fiabilité
+      const input = tf.tensor2d([[paymentRate]]);
+      const prediction = model.predict(input);
+      const score = (await prediction.data())[0];
+      input.dispose();
+      prediction.dispose();
+      model.dispose();
+
+      return Math.round(score * 100); // Retourner un score en pourcentage
+    } catch (err) {
+      console.error("Erreur de prédiction de fiabilité :", err);
+      return 50; // Score par défaut en cas d'erreur
     }
   };
 
@@ -417,7 +493,11 @@ const TontineCreate = () => {
         ) : (
           users.map((u) => (
             <div key={u._id} style={styles.userCard}>
-              {u.name} ({u.email})
+              <div>
+                {u.name} ({u.email})
+                <br />
+                Fiabilité : {reliabilityScores[u._id] || "Calcul en cours..."}%
+              </div>
               <button
                 onClick={() => handleInvite(u._id)}
                 style={styles.inviteBtn}
@@ -598,8 +678,8 @@ const styles = {
     border: "1px solid #ddd",
     marginBottom: "10px",
     display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
+    flexDirection: "column",
+    gap: "10px",
   },
   inviteBtn: {
     background: "#FF9900",
@@ -608,6 +688,7 @@ const styles = {
     padding: "8px 12px",
     borderRadius: "6px",
     cursor: "pointer",
+    alignSelf: "flex-start",
   },
   chatBox: {
     display: "flex",
