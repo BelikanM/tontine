@@ -226,7 +226,9 @@ app.post('/api/cotisations', authMiddleware, async (req, res) => {
 
 app.get('/api/cotisations', authMiddleware, async (req, res) => {
   try {
-    const cotisations = await Cotisation.find({ user: req.userId }).populate('tontine');
+    const { userId } = req.query;
+    const filter = userId ? { user: userId } : { user: req.userId };
+    const cotisations = await Cotisation.find(filter).populate('tontine');
     res.json(cotisations);
   } catch (err) {
     console.error("Erreur récupération cotisations:", err);
