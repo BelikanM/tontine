@@ -19,6 +19,11 @@ const TontineCreate = () => {
   // --- USERS LIST (pour inviter) ---
   const [users, setUsers] = useState([]);
 
+  // --- INVITATIONS ---
+  const [invitations, setInvitations] = useState([]);
+  const [inviteError, setInviteError] = useState("");
+  const [inviteSuccess, setInviteSuccess] = useState("");
+
   // --- CHAT STATE ---
   const [selectedTontine, setSelectedTontine] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -60,19 +65,34 @@ const TontineCreate = () => {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      // exclure l'utilisateur connecté
       setUsers(Array.isArray(data) ? data.filter((u) => u._id !== user._id) : []);
     } catch (err) {
       console.error("Erreur de récupération des utilisateurs :", err);
     }
   };
 
+  // --- FETCH INVITATIONS ---
+  const fetchInvitations = async () => {
+    try {
+      const res = await fetch("http://localhost:5000/api/invitations", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      setInvitations(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error("Erreur de récupération des invitations :", err);
+    }
+  };
+
   // --- FETCH MESSAGES pour une tontine ---
   const fetchMessages = async (tontineId) => {
     try {
-      const res = await fetch(`http://localhost:5000/api/tontines/${tontineId}/messages`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await fetch(
+        `http://localhost:5000/api/tontines/${tontineId}/messages`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
       const data = await res.json();
       setMessages(Array.isArray(data) ? data : []);
     } catch (err) {
@@ -146,20 +166,74 @@ const TontineCreate = () => {
 
   // --- INVITER UTILISATEUR ---
   const handleInvite = async (toUserId) => {
+    if (!selectedTontine) {
+      setInviteError("Veuillez sélectionner une tontine avant d'envoyer une invitation.");
+      return;
+    }
+
     try {
-      const res = await fetch(`http://localhost:5000/api/tontines/${selectedTontine}/invite`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ userId: toUserId }),
-      });
+      const res = await fetch(
+        `http://localhost:5000/api/tontines/${selectedTontine}/invite`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ userId: toUserId }),
+        }
+      );
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      alert("Invitation envoyée !");
+      setInviteSuccess("Invitation envoyée avec succès !");
+      setInviteError("");
+      fetchInvitations(); // Rafraîchir les invitations
     } catch (err) {
-      alert("Erreur lors de l'envoi de l'invitation : " + err.message);
+      setInviteError("Erreur lors de l'envoi de l'invitation : " + err.message);
+      setInviteSuccess("");
+    }
+  };
+
+  // --- ACCEPTER INVITATION ---
+  const handleAcceptInvitation = async (invitationId) => {
+    try {
+      const res = await fetch(
+        `http://localhost:5000/api/invitations/${invitationId}/accept`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setInviteSuccess("Invitation acceptée ! Vous avez rejoint la tontine.");
+      setInviteError("");
+      fetchTontines();
+      fetchInvitations();
+    } catch (err) {
+      setInviteError("Erreur lors de l'acceptation : " + err.message);
+      setInviteSuccess("");
+    }
+  };
+
+  // --- REJETER INVITATION ---
+  const handleRejectInvitation = async (invitationId) => {
+    try {
+      const res = await fetch(
+        `http://localhost:5000/api/invitations/${invitationId}/reject`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setInviteSuccess("Invitation rejetée.");
+      setInviteError("");
+      fetchInvitations();
+    } catch (err) {
+      setInviteError("Erreur lors du rejet : " + err.message);
+      setInviteSuccess("");
     }
   };
 
@@ -167,14 +241,17 @@ const TontineCreate = () => {
   const handleSendMessage = async () => {
     if (!newMessage.trim()) return;
     try {
-      const res = await fetch(`http://localhost:5000/api/tontines/${selectedTontine}/messages`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ content: newMessage }),
-      });
+      const res = await fetch(
+        `http://localhost:5000/api/tontines/${selectedTontine}/messages`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ content: newMessage }),
+        }
+      );
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       setNewMessage("");
@@ -194,6 +271,7 @@ const TontineCreate = () => {
   useEffect(() => {
     fetchTontines();
     fetchUsers();
+    fetchInvitations();
   }, []);
 
   // --- RECHARGER MESSAGES quand on change de tontine en chat ---
@@ -203,6 +281,9 @@ const TontineCreate = () => {
 
   return (
     <div style={styles.container}>
+      {/* === NOTIFICATIONS === */}
+      {inviteSuccess && <p style={styles.success}>{inviteSuccess}</p>}
+      {inviteError && <p style={styles.error}>{inviteError}</p>}
 
       {/* === FORM CREATION TONTINE === */}
       <form onSubmit={handleCreate} style={styles.form}>
@@ -294,9 +375,40 @@ const TontineCreate = () => {
         ))}
       </div>
 
+      {/* === LISTE INVITATIONS RECUES === */}
+      <div style={{ marginTop: 40 }}>
+        <h3>Invitations reçues</h3>
+        {invitations.length === 0 ? (
+          <p>Aucune invitation en attente.</p>
+        ) : (
+          invitations.map((inv) => (
+            <div key={inv._id} style={styles.invitationCard}>
+              <div>
+                Invitation de <strong>{inv.fromUser?.name}</strong> pour la tontine{" "}
+                <strong>{inv.tontine?.name}</strong>
+              </div>
+              <div style={styles.actions}>
+                <button
+                  onClick={() => handleAcceptInvitation(inv._id)}
+                  style={styles.acceptBtn}
+                >
+                  Accepter
+                </button>
+                <button
+                  onClick={() => handleRejectInvitation(inv._id)}
+                  style={styles.rejectBtn}
+                >
+                  Rejeter
+                </button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
       {/* === LISTE UTILISATEURS POUR INVITATION === */}
       <div style={{ marginTop: 40 }}>
-        <h3>Utilisateurs inscrits</h3>
+        <h3>Inviter des utilisateurs</h3>
         {users.length === 0 ? (
           <p>Aucun autre utilisateur trouvé.</p>
         ) : (
@@ -307,7 +419,11 @@ const TontineCreate = () => {
                 onClick={() => handleInvite(u._id)}
                 style={styles.inviteBtn}
                 disabled={!selectedTontine}
-                title={selectedTontine ? "Inviter cet utilisateur" : "Sélectionnez une tontine pour inviter"}
+                title={
+                  selectedTontine
+                    ? "Inviter cet utilisateur"
+                    : "Sélectionnez une tontine pour inviter"
+                }
               >
                 Inviter
               </button>
@@ -401,9 +517,15 @@ const styles = {
     fontSize: "16px",
     cursor: "pointer",
   },
+  success: {
+    color: "green",
+    textAlign: "center",
+    marginBottom: "10px",
+  },
   error: {
     color: "red",
     textAlign: "center",
+    marginBottom: "10px",
   },
   list: {
     background: "#fafafa",
@@ -415,6 +537,16 @@ const styles = {
     border: "1px solid #eee",
     padding: "15px",
     borderRadius: "8px",
+    marginBottom: "10px",
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  invitationCard: {
+    background: "#fff",
+    padding: "12px",
+    borderRadius: "8px",
+    border: "1px solid #ddd",
     marginBottom: "10px",
     display: "flex",
     justifyContent: "space-between",
@@ -434,6 +566,22 @@ const styles = {
   },
   joinBtn: {
     background: "#007bff",
+    color: "#fff",
+    border: "none",
+    padding: "8px 12px",
+    borderRadius: "6px",
+    cursor: "pointer",
+  },
+  acceptBtn: {
+    background: "#25D366",
+    color: "#fff",
+    border: "none",
+    padding: "8px 12px",
+    borderRadius: "6px",
+    cursor: "pointer",
+  },
+  rejectBtn: {
+    background: "#e63946",
     color: "#fff",
     border: "none",
     padding: "8px 12px",
