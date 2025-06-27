@@ -1,6 +1,6 @@
 {
-  "name": "Mon Application Vite",
-  "short_name": "MonApp",
+  "name": "TontineChatGab",
+  "short_name": "Chatontine",
   "start_url": ".",
   "display": "standalone",
   "background_color": "#ffffff",
