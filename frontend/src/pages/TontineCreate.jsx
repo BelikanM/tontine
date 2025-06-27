@@ -2,10 +2,12 @@ import React, { useState, useEffect, useContext } from "react";
 import { AuthContext } from "../context/AuthContext";
 import { useNavigate } from "react-router-dom";
 import * as tf from "@tensorflow/tfjs";
+import { io } from "socket.io-client";
 
 const TontineCreate = () => {
   const { user } = useContext(AuthContext);
   const navigate = useNavigate();
+  const socket = io("http://localhost:5000");
 
   // --- FORM STATE ---
   const [form, setForm] = useState({
@@ -44,6 +46,35 @@ const TontineCreate = () => {
     { value: "weekly", label: "Hebdomadaire" },
     { value: "monthly", label: "Mensuelle" },
   ];
+
+  // --- NOTIFICATIONS PUSH ---
+  const subscribeToPush = async () => {
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") {
+        console.log("Permission de notification refusée");
+        return;
+      }
+
+      const registration = await navigator.serviceWorker.register("/service-worker.js");
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: process.env.REACT_APP_VAPID_PUBLIC_KEY, // Ajoutez la clé publique VAPID dans .env
+      });
+
+      await fetch("http://localhost:5000/api/push/subscribe", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(subscription),
+      });
+      console.log("Abonnement push enregistré");
+    } catch (err) {
+      console.error("Erreur abonnement push:", err);
+    }
+  };
 
   // --- HANDLERS ---
   const handleChange = (e) =>
@@ -343,6 +374,7 @@ const TontineCreate = () => {
   const selectTontine = (tontine) => {
     setSelectedTontine(tontine._id);
     fetchMessages(tontine._id);
+    socket.emit("joinTontine", tontine._id);
   };
 
   // --- CHARGEMENT INITIAL ---
@@ -350,6 +382,22 @@ const TontineCreate = () => {
     fetchTontines();
     fetchUsers();
     fetchInvitations();
+    subscribeToPush(); // Demander l'abonnement aux notifications push
+
+    socket.on("message", (data) => {
+      if (data.tontine === selectedTontine) {
+        setMessages((prev) => [...prev, data]);
+      }
+    });
+
+    socket.on("invitation", (data) => {
+      fetchInvitations();
+    });
+
+    return () => {
+      socket.off("message");
+      socket.off("invitation");
+    };
   }, []);
 
   // --- RECHARGER MESSAGES quand on change de tontine en chat ---
