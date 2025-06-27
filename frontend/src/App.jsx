@@ -1,3 +1,4 @@
+import React from "react"; // ✅ Import nécessaire pour éviter l'erreur "React is not defined"
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import Navbar from "./components/Navbar";
 import Home from "./pages/Home";
@@ -18,12 +19,34 @@ const App = () => {
           <Route path="/" element={<Home />} />
           <Route path="/register" element={<Register />} />
           <Route path="/login" element={<Login />} />
-          <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-          <Route path="/tontines/create" element={<ProtectedRoute><TontineCreate /></ProtectedRoute>} />
-          <Route path="/tontines/:id" element={<ProtectedRoute><TontineDetail /></ProtectedRoute>} />
+          <Route
+            path="/dashboard"
+            element={
+              <ProtectedRoute>
+                <Dashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/tontines/create"
+            element={
+              <ProtectedRoute>
+                <TontineCreate />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/tontines/:id"
+            element={
+              <ProtectedRoute>
+                <TontineDetail />
+              </ProtectedRoute>
+            }
+          />
         </Routes>
       </Router>
     </AuthProvider>
   );
 };
+
 export default App;

@@ -1,5 +1,6 @@
+import React from "react";
 import { Link, useLocation } from "react-router-dom";
-import { useContext } from "react";
+import { useContext, useEffect, useState } from "react";
 import { AuthContext } from "../context/AuthContext";
 import {
   FiHome,
@@ -7,12 +8,38 @@ import {
   FiUserPlus,
   FiLogOut,
   FiUsers,
-  FiPlusCircle
+  FiPlusCircle,
+  FiDownload
 } from "react-icons/fi";
 
 const Navbar = () => {
   const { user, setUser } = useContext(AuthContext);
   const location = useLocation();
+  const [deferredPrompt, setDeferredPrompt] = useState(null);
+  const [installable, setInstallable] = useState(false);
+
+  // Gestion de l'événement d'installation PWA
+  useEffect(() => {
+    const handler = (e) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setInstallable(true);
+    };
+
+    window.addEventListener("beforeinstallprompt", handler);
+    return () => window.removeEventListener("beforeinstallprompt", handler);
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === "accepted") {
+      console.log("App installée !");
+    }
+    setDeferredPrompt(null);
+    setInstallable(false);
+  };
 
   const logout = () => {
     localStorage.removeItem("token");
@@ -41,7 +68,19 @@ const Navbar = () => {
             <Link to="/tontines/create" style={iconStyle("/tontines/create")}>
               <FiPlusCircle />
             </Link>
-            <button onClick={logout} style={{ ...iconStyle(), background: "none", border: "none" }}>
+            {installable && (
+              <button
+                onClick={handleInstallClick}
+                title="Installer l'application"
+                style={{ ...iconStyle(), background: "none", border: "none" }}
+              >
+                <FiDownload />
+              </button>
+            )}
+            <button
+              onClick={logout}
+              style={{ ...iconStyle(), background: "none", border: "none" }}
+            >
               <FiLogOut />
             </button>
           </>

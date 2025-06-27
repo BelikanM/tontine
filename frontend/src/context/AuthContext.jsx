@@ -1,10 +1,10 @@
-import { createContext, useState, useEffect } from 'react';
+import React, { createContext, useState, useEffect } from 'react';
 
 export const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true); // Ajout du chargement
+  const [loading, setLoading] = useState(true); // état de chargement
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -23,7 +23,7 @@ export const AuthProvider = ({ children }) => {
         })
         .finally(() => setLoading(false));
     } else {
-      setLoading(false); // Aucun token, chargement terminé
+      setLoading(false); // Aucun token trouvé
     }
   }, []);
 
