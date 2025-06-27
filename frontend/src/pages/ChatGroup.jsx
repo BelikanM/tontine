@@ -2,6 +2,7 @@ import React, { useState, useEffect, useContext } from "react";
 import { AuthContext } from "../context/AuthContext";
 import { useParams } from "react-router-dom";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { io } from "socket.io-client";
 
 const TontineChat = () => {
   const { user } = useContext(AuthContext);
@@ -13,8 +14,10 @@ const TontineChat = () => {
   const [availableUsers, setAvailableUsers] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [reliabilityScores, setReliabilityScores] = useState({});
+  const [notification, setNotification] = useState("");
 
   const token = localStorage.getItem("token");
+  const socket = io("http://localhost:5000");
 
   const fetchMessages = async () => {
     try {
@@ -94,7 +97,7 @@ const TontineChat = () => {
     setReliabilityScores((prev) => ({
       ...prev,
       ...Object.fromEntries(
-        Object.entries(scores).map(([id, score]) => [id, { message: score }])
+        Object.entries(scores).map(([id, score]) => [id, { ...prev[id], message: score }])
       ),
     }));
   };
@@ -139,8 +142,8 @@ const TontineChat = () => {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur serveur");
 
+      socket.emit("newMessage", { ...data, tontineId });
       setContent("");
-      setMessages((prev) => [...prev, data]);
       await calculateMessageReliability([...messages, data]);
     } catch (err) {
       setError("Erreur d'envoi du message");
@@ -162,7 +165,15 @@ const TontineChat = () => {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur serveur");
 
-      alert("Invitation envoyée avec succès !");
+      socket.emit("newInvitation", {
+        userId,
+        tontineId,
+        fromUser: { name: user.name },
+        tontine: { name: data.tontine.name },
+      });
+
+      setNotification("Invitation envoyée avec succès !");
+      setTimeout(() => setNotification(""), 3000);
       setShowInviteModal(false);
     } catch (err) {
       setError("Erreur lors de l'envoi de l'invitation");
@@ -172,9 +183,29 @@ const TontineChat = () => {
 
   useEffect(() => {
     fetchMessages();
-    const interval = setInterval(fetchMessages, 5000);
-    return () => clearInterval(interval);
-  }, [tontineId]);
+    socket.emit("joinTontine", tontineId);
+    socket.on("message", (data) => {
+      setMessages((prev) => {
+        const messageExists = prev.some((msg) => msg._id === data._id);
+        if (!messageExists) {
+          return [...prev, data];
+        }
+        return prev;
+      });
+      calculateMessageReliability([...messages, data]);
+    });
+
+    socket.on("invitation", (data) => {
+      setNotification(`Nouvelle invitation de ${data.fromUser.name} pour ${data.tontine.name}`);
+      setTimeout(() => setNotification(""), 5000);
+    });
+
+    return () => {
+      socket.off("message");
+      socket.off("invitation");
+      socket.disconnect();
+    };
+  }, [tontineId, messages]);
 
   const filteredUsers = availableUsers.filter(user => 
     user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -201,6 +232,7 @@ const TontineChat = () => {
         </button>
       </div>
       
+      {notification && <p style={styles.notification}>{notification}</p>}
       {error && <p style={styles.error}>{error}</p>}
 
       <div style={styles.chatBox}>
@@ -393,6 +425,11 @@ const styles = {
   error: {
     color: "red",
     textAlign: "center",
+  },
+  notification: {
+    color: "green",
+    textAlign: "center",
+    marginBottom: 10,
   },
   modalOverlay: {
     position: "fixed",
